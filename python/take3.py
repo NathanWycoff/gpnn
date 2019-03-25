@@ -11,18 +11,27 @@ tf.enable_eager_execution()
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 plt.ion()
-from scipy.special import expit
+from scipy.special import expit, logit
+from hilbertcurve.hilbertcurve import HilbertCurve
+from scipy.spatial import distance_matrix
 
 tfd = tfp.distributions
 psd_kernels = tfp.positive_semidefinite_kernels
 
-N = 10
+N = 100
 P = 2
+L = 10
 H = 100
-R = 1
+R = 2
 learn_rate = 0.01
 iters = 1000
-kernel = psd_kernels.ExponentiatedQuadratic()
+# TODO: These next two dials are pretty fragile.
+minalldist = 1e-5
+scalealldist = 1500
+kernel = psd_kernels.ExponentiatedQuadratic(length_scale = np.array([0.1]).astype(np.float64))
+gamma = int(np.ceil(np.log2(N+1) / P))
+hilbert_curve = HilbertCurve(N, P)
+in_sigspace = False
 
 def scipy_cost(x):
     X.assign(np.array(x).reshape([N,P]))
@@ -35,22 +44,59 @@ def scipy_grad(x):
     return (t.gradient(l, X).numpy()).flatten()
 
 #init_design = np.random.uniform(size=[N,P])
-init_design = np.random.normal(0,0.001, size = [N,P])
+#init_design = np.random.normal(0,0.001, size = [N,P])
+#TODO: Need to work on general sample sizes.
+init_design = np.array([hilbert_curve.coordinates_from_distance(i) for i in range(N)]) / float(np.power(2, gamma))
+if in_sigspace:
+    init_design = logit((init_design+0.1)/1.1)
 X = tf.Variable(init_design)
 
 model = tf.keras.models.Sequential([
-    tf.keras.layers.Flatten(),
-#    tf.keras.layers.Dense(H, activation=tf.nn.sigmoid, input_shape=(P,)),
-    tf.keras.layers.Dense(R, input_shape = (P,))
+    tf.keras.layers.Flatten()] + 
+    [tf.keras.layers.Dense(H, activation=tf.nn.relu, input_shape=(P,)) for _ in range(L)] + 
+    [tf.keras.layers.Dense(R, input_shape = (P,))
     ])
 
+# Set to identity if desired:
+#model.set_weights([np.eye(2), np.zeros(2)])
+
+def bump(x, lb, ub, scale = 10):
+    """
+    A smooth function which will be large between lb and ub, and zero elsewhere.
+
+    :param x: The function argument.
+    :param lb, ub: Function will be nonzero only within lb, ub.
+    :param scale: Max value of function.
+    """
+    xn11 = 2 * (x-lb) / (ub - lb) - 1
+    return scale * np.e * tf.exp(-1/(1-tf.square(tf.clip_by_value(xn11,-1,1))))
+
 def loss(X):
-    Z = model(tf.math.sigmoid(X))
+    #### Compute low D subspace.
+    if in_sigspace:
+        Z = model(tf.math.sigmoid(X))
+    else:
+        Z = model(X)
 
+    #### Small Distance penalty.
+    r = tf.reduce_sum(X*X, 1)
+
+    # turn r into column vector
+    r = tf.reshape(r, [-1, 1])
+    D = r - 2*tf.matmul(X, tf.transpose(X)) + tf.transpose(r)
+
+    Da = D + tf.cast(np.power(P, 2) * tf.eye(N), np.float64)
+    mindist = tf.reduce_min(Da)
+    distpen = bump(mindist, -minalldist, minalldist, scalealldist)
+
+    # Detect if near boundary
+    #bump(X, )
+    
+    # Get the entropy of the design
     gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-10)
-
     nldetK = -tf.linalg.logdet(gp.covariance())
-    return nldetK
+
+    return nldetK + distpen
 
 loss(X)
 
@@ -84,33 +130,51 @@ loss(X)
 #plt.show()
 
 ### With SCIPY BFGS
-#optret = minimize(scipy_cost, init_design, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
-#        jac = scipy_grad, tol = 0)
-optret = minimize(scipy_cost, init_design, method = 'BFGS',\
-        jac = scipy_grad, tol = 0)
+if in_sigspace:
+    optret = minimize(scipy_cost, init_design, method = 'BFGS',\
+            jac = scipy_grad, tol = 0)
+    ides = expit(init_design)
+else:
+    optret = minimize(scipy_cost, init_design, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
+            jac = scipy_grad, options = {'ftol' : 0})
+    ides = init_design
 
 print(optret.success)
 print(optret.fun)
-X_sol = optret.x.reshape([N,P])
+if in_sigspace:
+    X_sol = expit(optret.x.reshape([N,P]))
+else:
+    X_sol = optret.x.reshape([N,P])
 
-fig = plt.figure()
+fig = plt.figure(figsize = [8,8])
 
 plt.subplot(2,2,1)
-plt.scatter(X_sol[:,0], X_sol[:,1])
-plt.title(optret.fun)
+plt.scatter(ides[:,0], ides[:,1])
+plt.title("Initial Design (cost %s)"%np.around(scipy_cost(ides), decimals = 2))
 
 plt.subplot(2,2,2)
-plt.scatter(init_design[:,0], init_design[:,1])
-plt.title(scipy_cost(init_design))
+plt.scatter(X_sol[:,0], X_sol[:,1])
+plt.title("Final Design (cost %s)"%np.around(optret.fun))
 
-Z_sol = model(expit(X_sol))
+Z_sol = model(ides)
 plt.subplot(2,2,3)
-#plt.scatter(Z_sol[:,0], Z_sol[:,1])
 if R == 1:
     plt.scatter([0 for _ in range(N)], Z_sol[:])
 elif R == 2:
     plt.scatter(Z_sol[:,0], Z_sol[:,1])
-plt.title("In Latent Space")
+plt.title("Initial Latent Representation")
 
+Z_sol = model(X_sol)
+plt.subplot(2,2,4)
+if R == 1:
+    plt.scatter([0 for _ in range(N)], Z_sol[:])
+elif R == 2:
+    plt.scatter(Z_sol[:,0], Z_sol[:,1])
+plt.title("Final Latent Representation")
 
 plt.show()
+
+plt.savefig('temp.pdf')
+
+Dmat = distance_matrix(X_sol, X_sol)
+np.min(Dmat[np.triu_indices(N, k = 1)])
