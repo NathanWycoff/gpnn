@@ -12,16 +12,16 @@ from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 plt.ion()
 from scipy.special import expit, logit
-from hilbertcurve.hilbertcurve import HilbertCurve
 from scipy.spatial import distance_matrix
+exec(open("python/hilbert_curve.py").read())
 
 tfd = tfp.distributions
 psd_kernels = tfp.positive_semidefinite_kernels
 
 N = 100
 P = 2
-L = 10
-H = 100
+L = 2
+H = 10
 R = 2
 learn_rate = 0.01
 iters = 1000
@@ -29,8 +29,6 @@ iters = 1000
 minalldist = 1e-5
 scalealldist = 1500
 kernel = psd_kernels.ExponentiatedQuadratic(length_scale = np.array([0.1]).astype(np.float64))
-gamma = int(np.ceil(np.log2(N+1) / P))
-hilbert_curve = HilbertCurve(N, P)
 in_sigspace = False
 
 def scipy_cost(x):
@@ -43,10 +41,7 @@ def scipy_grad(x):
         l = loss(X)
     return (t.gradient(l, X).numpy()).flatten()
 
-#init_design = np.random.uniform(size=[N,P])
-#init_design = np.random.normal(0,0.001, size = [N,P])
-#TODO: Need to work on general sample sizes.
-init_design = np.array([hilbert_curve.coordinates_from_distance(i) for i in range(N)]) / float(np.power(2, gamma))
+init_design = hc_design(N,P)
 if in_sigspace:
     init_design = logit((init_design+0.1)/1.1)
 X = tf.Variable(init_design)
