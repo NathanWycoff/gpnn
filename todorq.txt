@@ -7,9 +7,9 @@
     3) Solve least squares problem on original HC vs result of neural net.
     4) That transform is our new HC target.
 
-2) Put shit into functions and make tests
-
 3) Bobby's bounding box idea
 
 Done:
 1) Get Hilbert Curve init in X space working fully
+2) Put shit into functions and make tests
+

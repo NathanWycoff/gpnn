@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#  python/neural_maxent.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 03.31.2019
+
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
@@ -49,7 +53,6 @@ def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500):
         distpen = bump(mindist, -minalldist, minalldist, scalealldist)
 
         # Detect if near boundary
-        #bump(X, )
         
         # Get the entropy of the design
         gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-10)
@@ -81,11 +84,14 @@ def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500):
         return (t.gradient(l, X).numpy()).flatten()
 
     optret = minimize(scipy_cost, init_design, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
-            jac = scipy_grad, options = {'ftol' : 0})
+            jac = scipy_grad)
     ides = init_design
 
-    print(optret.success)
-    print(optret.fun)
+    if optret.success:
+        msg = "Successful Search Termination"
+    else:
+        msg = "Abnormal Search Termination"
+    print(''.join([msg, ". Final Entropy = %f"%(-optret.fun)]))
     X_sol = optret.x.reshape([N,P])
 
     Dmat = distance_matrix(X_sol, X_sol)
@@ -94,3 +100,99 @@ def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500):
     return {'design' : X_sol, 'entropy' : -float(optret.fun),  'optret' : optret,
             'init_design' : init_design, 'init_entropy' : -scipy_cost(init_design), 'nnet' : model}
 
+#TODO: Make this a class to be more pythonic?
+def neural_maxent_box(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, outer_bfgs_iters = 1000, \
+        ftol = 2.220446049250313e-09, gtol = 1e-05):
+    """
+    Create a neural maxentropy design with N points in P dimensions.
+    Optimize via R B Gramacy's suggestion of bounding box iteration.
+    """
+
+    def loss(X):
+        #### Compute low D subspace.
+        Z = model(X)
+
+        #### Small Distance penalty.
+        r = tf.reduce_sum(X*X, 1)
+
+        # turn r into column vector
+        r = tf.reshape(r, [-1, 1])
+        D = r - 2*tf.matmul(X, tf.transpose(X)) + tf.transpose(r)
+
+        Da = D + tf.cast(np.power(P, 2) * tf.eye(N), np.float64)
+        mindist = tf.reduce_min(Da)
+        distpen = bump(mindist, -minalldist, minalldist, scalealldist)
+
+        # Detect if near boundary
+        
+        # Get the entropy of the design
+        gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-10)
+        nldetK = -tf.linalg.logdet(gp.covariance())
+
+        return nldetK + distpen
+
+
+    init_design = hc_design(N,P)
+    X = tf.Variable(init_design)
+
+    model = tf.keras.models.Sequential([
+        tf.keras.layers.Flatten()] + 
+        [tf.keras.layers.Dense(H, activation=tf.nn.tanh, input_shape=(P,)) for _ in range(L)] + 
+        [tf.keras.layers.Dense(R, input_shape = (P,))
+        ])
+
+    ### With SCIPY BFGS
+    def scipy_cost(x):
+        """
+        x is the vector of inputs, while X is a tensorflow matrix of appropriate size.
+        """
+        X.assign(np.array(x).reshape([N,P]))
+        return loss(X).numpy()
+    def scipy_grad(x):
+        X.assign(np.array(x).reshape([N,P]))
+        with tf.GradientTape() as t:
+            l = loss(X)
+        return (t.gradient(l, X).numpy()).flatten()
+
+    cur_sol = init_design
+    fdiff = np.inf
+    flast = np.inf
+    gnorm = np.inf
+    it = 0
+    while it < outer_bfgs_iters and fdiff > ftol and gnorm > gtol:
+        print(it)
+        # Conduct the optimization
+        optret = minimize(scipy_cost, cur_sol, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
+                jac = scipy_grad, options = {'maxiter' : 1})
+        cur_sol = optret.x.reshape([N,P])
+
+        # Check for convergence in function values
+        if it > 0:
+            fdiff = (flast - optret.fun)/max([abs(flast), abs(optret.fun),1])
+        else:
+            fdiff = np.inf
+        flast = optret.fun
+
+        # Check for convergence in gradient infinity norm.
+        not_onbounds = (optret.x!=0) * (optret.x!=1)
+        gnorm = max(np.abs(optret.jac)*not_onbounds)
+
+        print("fdiff: %f"%fdiff)
+        print("gnorm: %f"%gnorm)
+
+        it += 1
+
+    ides = init_design
+
+    if optret.success:
+        msg = "Successful Search Termination"
+    else:
+        msg = "Abnormal Search Termination"
+    print(''.join([msg, ". Final Entropy = %f"%(-optret.fun)]))
+    X_sol = optret.x.reshape([N,P])
+
+    Dmat = distance_matrix(X_sol, X_sol)
+    np.min(Dmat[np.triu_indices(N, k = 1)])
+
+    return {'design' : X_sol, 'entropy' : -float(optret.fun),  'optret' : optret,
+            'init_design' : init_design, 'init_entropy' : -scipy_cost(init_design), 'nnet' : model}

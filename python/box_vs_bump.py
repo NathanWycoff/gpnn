@@ -1,43 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#  python/tests.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 03.27.2019
+#  python/box_vs_bump.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 03.28.2019
+
+## The maxent problem is prone to get caught in what I believe may be saddle points of the Lagrangian. 
+## Bobby and I have different methods to resolve this. Here, we will compare them.
 
 from sklearn.manifold import MDS
 exec(open("python/hilbert_curve.py").read())
 exec(open("python/neural_maxent.py").read())
 
-#######################################################
-#######################################################
-# Visual Testing ######################################
-#######################################################
-#######################################################
-
-#############################################
-## Visualize a Hilbert Curve Design in 2D.
-N = 100#number of desired design points
-P = 2#Dimensionality of design space.
-
-init_design = hc_design(N, P)
-
-fig = plt.figure(figsize = [8,8])
-plt.scatter(init_design[:,0], init_design[:,1])
-plt.show()
-
-plt.savefig('temp.pdf')
-
 #############################################
 #TODO: ## Test that neural entropy matches standard entropy on a standard problem.
 #### Visual check
 N = 100
-P = 10
+P = 2
 L = 10
-H = 30
+H = 10
 R = 2
 # TODO: These next two dials are pretty fragile.
 minalldist = 1e-5
 scalealldist = 1500
 
+#tf.random.set_random_seed(123)
+
 ne = neural_maxent(N ,P, L, H, R)
+#ne = neural_maxent_box(N ,P, L, H, R, outer_bfgs_iters = 1001)
 
 ides = ne['init_design']
 X_sol = ne['design']
