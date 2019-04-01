@@ -17,7 +17,7 @@ exec(open("python/hilbert_curve.py").read())
 
 tfd = tfp.distributions
 psd_kernels = tfp.positive_semidefinite_kernels
-kernel = psd_kernels.ExponentiatedQuadratic(length_scale = np.array([0.1]).astype(np.float64))
+kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
 
 def bump(x, lb, ub, scale = 10):
     """
@@ -32,14 +32,22 @@ def bump(x, lb, ub, scale = 10):
 
 
 #TODO: Make this a class to be more pythonic?
-def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500):
+def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, net_weights = None):
     """
     Create a neural maxentropy design with N points in P dimensions.
+
+    :param N: The number of initial design points
+    :param P: The dimension of the input space.
+    :param L: The number of layers in the neural net.
+    :param H: Width of hidden layers (scalar).
+    :param R: The dimension of the output space.
+    :param net_weights: The weights to initialize the neural net, to be passed to the set_weights method of the neural net object.
+
     """
 
-    def loss(X):
+    def maxent_loss(X):
         #### Compute low D subspace.
-        Z = model(X)
+        Z = model(tf.cast(X, tf.float32))
 
         #### Small Distance penalty.
         r = tf.reduce_sum(X*X, 1)
@@ -50,12 +58,12 @@ def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500):
 
         Da = D + tf.cast(np.power(P, 2) * tf.eye(N), np.float64)
         mindist = tf.reduce_min(Da)
-        distpen = bump(mindist, -minalldist, minalldist, scalealldist)
+        distpen = tf.cast(bump(mindist, -minalldist, minalldist, scalealldist), tf.float32)
 
         # Detect if near boundary
         
         # Get the entropy of the design
-        gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-10)
+        gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-6)
         nldetK = -tf.linalg.logdet(gp.covariance())
 
         return nldetK + distpen
@@ -64,27 +72,30 @@ def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500):
     init_design = hc_design(N,P)
     X = tf.Variable(init_design)
 
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Flatten()] + 
-        [tf.keras.layers.Dense(H, activation=tf.nn.tanh, input_shape=(P,)) for _ in range(L)] + 
-        [tf.keras.layers.Dense(R, input_shape = (P,))
+    act = tf.nn.tanh
+    model = tf.keras.models.Sequential(
+        [tf.keras.layers.Dense(H, activation=act, input_shape=(P,)) if i == 0 else tf.keras.layers.Dense(H, activation=act) for i in range(L)] + 
+        [tf.keras.layers.Dense(R)
         ])
+    model.build(input_shape=[P])
+    if net_weights is not None:
+        model.set_weights(net_weights)
 
     ### With SCIPY BFGS
-    def scipy_cost(x):
+    def spy_maxent_cost(x):
         """
         x is the vector of inputs, while X is a tensorflow matrix of appropriate size.
         """
         X.assign(np.array(x).reshape([N,P]))
-        return loss(X).numpy()
-    def scipy_grad(x):
+        return maxent_loss(X).numpy()
+    def spy_maxent_grad(x):
         X.assign(np.array(x).reshape([N,P]))
         with tf.GradientTape() as t:
-            l = loss(X)
+            l = maxent_loss(X)
         return (t.gradient(l, X).numpy()).flatten()
 
-    optret = minimize(scipy_cost, init_design, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
-            jac = scipy_grad)
+    optret = minimize(spy_maxent_cost, init_design, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
+            jac = spy_maxent_grad)
     ides = init_design
 
     if optret.success:
@@ -98,9 +109,9 @@ def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500):
     np.min(Dmat[np.triu_indices(N, k = 1)])
 
     return {'design' : X_sol, 'entropy' : -float(optret.fun),  'optret' : optret,
-            'init_design' : init_design, 'init_entropy' : -scipy_cost(init_design), 'nnet' : model}
+            'init_design' : init_design, 'init_entropy' : -spy_maxent_cost(init_design), 'nnet' : model}
 
-#TODO: Make this a class to be more pythonic?
+#TODO: Do updates from the above down here.
 def neural_maxent_box(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, outer_bfgs_iters = 1000, \
         ftol = 2.220446049250313e-09, gtol = 1e-05):
     """
@@ -108,7 +119,7 @@ def neural_maxent_box(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, out
     Optimize via R B Gramacy's suggestion of bounding box iteration.
     """
 
-    def loss(X):
+    def maxent_loss(X):
         #### Compute low D subspace.
         Z = model(X)
 
@@ -135,23 +146,24 @@ def neural_maxent_box(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, out
     init_design = hc_design(N,P)
     X = tf.Variable(init_design)
 
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Flatten()] + 
-        [tf.keras.layers.Dense(H, activation=tf.nn.tanh, input_shape=(P,)) for _ in range(L)] + 
-        [tf.keras.layers.Dense(R, input_shape = (P,))
+    act = tf.nn.tanh
+    model = tf.keras.models.Sequential(
+        [tf.keras.layers.Dense(H, activation=act, input_shape=(P,)) if i == 0 else tf.keras.layers.Dense(H, activation=act) for i in range(L)] + 
+        [tf.keras.layers.Dense(R)
         ])
+    model.build(input_shape=[P])
 
     ### With SCIPY BFGS
-    def scipy_cost(x):
+    def spy_maxent_cost(x):
         """
         x is the vector of inputs, while X is a tensorflow matrix of appropriate size.
         """
         X.assign(np.array(x).reshape([N,P]))
-        return loss(X).numpy()
-    def scipy_grad(x):
+        return maxent_loss(X).numpy()
+    def spy_maxent_grad(x):
         X.assign(np.array(x).reshape([N,P]))
         with tf.GradientTape() as t:
-            l = loss(X)
+            l = maxent_loss(X)
         return (t.gradient(l, X).numpy()).flatten()
 
     cur_sol = init_design
@@ -162,8 +174,8 @@ def neural_maxent_box(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, out
     while it < outer_bfgs_iters and fdiff > ftol and gnorm > gtol:
         print(it)
         # Conduct the optimization
-        optret = minimize(scipy_cost, cur_sol, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
-                jac = scipy_grad, options = {'maxiter' : 1})
+        optret = minimize(spy_maxent_cost, cur_sol, bounds = [(0,1) for _ in range(N*P)], method = 'L-BFGS-B',\
+                jac = spy_maxent_grad, options = {'maxiter' : 1})
         cur_sol = optret.x.reshape([N,P])
 
         # Check for convergence in function values
@@ -195,4 +207,4 @@ def neural_maxent_box(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, out
     np.min(Dmat[np.triu_indices(N, k = 1)])
 
     return {'design' : X_sol, 'entropy' : -float(optret.fun),  'optret' : optret,
-            'init_design' : init_design, 'init_entropy' : -scipy_cost(init_design), 'nnet' : model}
+            'init_design' : init_design, 'init_entropy' : -spy_maxent_cost(init_design), 'nnet' : model}
