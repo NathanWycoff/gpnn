@@ -66,14 +66,14 @@ def get_ei(xx_tf, yn_tf, gp):
             zpred_vars * pdist.prob(miny)
     return(ei)
 
-def spy_nei(x):
+def spy_neur_nei(x):
     x_tf = tf.cast(tf.Variable(x.reshape([1,P])), tf.float32)
     z_tf = model(x_tf)
     #z_tf = tf.cast(tf.Variable(z.reshape([1,R])), tf.float32)
     ei = get_ei(z_tf, response_tf, gp)
     return(-float(ei.numpy().flatten()))
 
-def spy_nei_grad(x):
+def spy_neur_nei_grad(x):
     with tf.GradientTape() as t:
         x_tf = tf.cast(tf.Variable(x.reshape([1,P])), tf.float32)
         z_tf = model(x_tf)
