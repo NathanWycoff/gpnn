@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#  python/known_weights.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 04.01.2019
+#  python/wrong_weights.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 04.03.2019
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -36,19 +36,31 @@ minalldist = 1e-5
 nugget = 1E-5
 scalealldist = 1500
 
+## Model we're using
 tf.random.set_random_seed(123)
 np.random.seed(123)
 act = tf.nn.tanh
-model = tf.keras.models.Sequential(
+used_model = tf.keras.models.Sequential(
     [tf.keras.layers.Dense(H, activation=act, input_shape=(P,)) if i == 0 else tf.keras.layers.Dense(H, activation=act) for i in range(L)] + 
     [tf.keras.layers.Dense(R)
     ])
-model.build(input_shape=[P])
-model.summary()
+used_model.build(input_shape=[P])
+used_model.summary()
+
+## Model we're using
+tf.random.set_random_seed(123)
+np.random.seed(123)
+act = tf.nn.tanh
+true_model = tf.keras.models.Sequential(
+    [tf.keras.layers.Dense(H, activation=act, input_shape=(P,)) if i == 0 else tf.keras.layers.Dense(H, activation=act) for i in range(L)] + 
+    [tf.keras.layers.Dense(R)
+    ])
+true_model.build(input_shape=[P])
+true_model.summary()
 
 ## Get teh extent of the design with many points.
-viz_design = neural_maxent(100 ,P, L, H, R, net_weights = model.get_weights())['design']
-viz_Z = model(tf.cast(viz_design, tf.float32)).numpy()
+viz_design = neural_maxent(100 ,P, L, H, R, net_weights = used_model.get_weights())['design']
+viz_Z = used_model(tf.cast(viz_design, tf.float32)).numpy()
 extent = [min(viz_Z[:,0]), max(viz_Z[:,0]), min(viz_Z[:,1]), max(viz_Z[:,1])]
 
 #########
@@ -64,23 +76,23 @@ def test_objective(x):
     An ackley defined on a low D space.
     """
     xs = x.reshape([1,x.shape[0]])
-    z = model(tf.cast(xs, tf.float32)).numpy().reshape(R)
+    z = true_model(tf.cast(xs, tf.float32)).numpy().reshape(R)
     # Reshape according to the extent of the low D points.
     return(myackley(z))
 
 # Entropy max initial design
 N = N_init
-design = neural_maxent(N ,P, L, H, R, net_weights = model.get_weights())['design']
+design = neural_maxent(N ,P, L, H, R, net_weights = used_model.get_weights())['design']
 response_us = np.apply_along_axis(test_objective, 1, design)
 y_mu = np.mean(response_us)
 y_sig = np.std(response_us)
 response = (response_us - y_mu) / y_sig
 
-design, response, explored = seq_design(design = design, response = response, model = model, objective = test_objective, seq_steps = seq_steps, explore_starts = explore_starts, verbose = True)
+design, response, explored = seq_design(design = design, response = response, used_model = used_model, objective = test_objective, seq_steps = seq_steps, explore_starts = explore_starts, verbose = True)
 design_tf = tf.Variable(design)
 
 ## Contour plot
-Z_sol = model(tf.cast(design_tf, tf.float32)).numpy()
+Z_sol = used_model(tf.cast(design_tf, tf.float32)).numpy()
 delta = 0.025
 x = np.arange(extent[0], extent[1], delta)
 y = np.arange(extent[2], extent[3], delta)

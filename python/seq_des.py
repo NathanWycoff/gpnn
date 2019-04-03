@@ -13,90 +13,96 @@ import matplotlib.pyplot as plt
 plt.ion()
 from scipy.special import expit, logit
 from scipy.spatial import distance_matrix
-exec(open("python/hilbert_curve.py").read())
-exec(open("python/ackley.py").read())
-exec(open("python/neural_maxent.py").read())
 
 ## Sequential design of an acquisition function using a deep kernel.
-## A toy design: start with some high D function, map it to R D using a MLP, 
-## then do sequential design pretending like we know the true mapping. 
-## We should demolish methods which do not avail themselves of this info.
-N = 100
-P = 10
-L = 2
-H = 10
-R = 2
-# TODO: These next two dials are pretty fragile.
-minalldist = 1e-5
-scalealldist = 1500
-
-act = tf.nn.tanh
-model = tf.keras.models.Sequential(
-    [tf.keras.layers.Dense(H, activation=act, input_shape=(P,)) if i == 0 else tf.keras.layers.Dense(H, activation=act) for i in range(L)] + 
-    [tf.keras.layers.Dense(R)
-    ])
-model.build(input_shape=[P])
-model.summary()
-
-
-def test_objective(x):
+def seq_design(design, response, model, objective, seq_steps, explore_starts = 10, verbose = False):
     """
-    An ackley defined on a low D space.
+    Sequential Acquisition.
     """
-    xs = x.reshape([1,x.shape[0]])
-    z = model(tf.cast(xs, tf.float32)).numpy().reshape(R)
-    return(ackley(z))
+    #########
+    N = design.shape[0]
+    P = design.shape[1]
+    ## Initial model
+    design_tf = tf.Variable(design)
+    response_tf = tf.Variable(response.reshape([N,1]))
+    Z = model(tf.cast(design_tf, tf.float32))
 
-# Entropy max initial design
-design = neural_maxent(N ,P, L, H, R, net_weights = model.get_weights())['design']
-response = np.apply_along_axis(test_objective, 1, design)
+    # Initial fit to get amplitude (this is horribly inefficient but easiest for now)
+    kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
+    gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float32))
 
-# Define likelihood wrt weights
-def weights_loss(weights):
-    #### Compute low D subspace.
-    model.set_weights(weights)
-    Z = model(tf.cast(design, np.float32))
+    ## Plug in estimate
+    #K = tf.squeeze(gp.covariance())
+    #tau_hat = tf.squeeze(tf.sqrt(tf.matmul(tf.transpose(response_tf), tf.linalg.solve(tf.cast(K, tf.float64), response_tf)) / float(N)))
+    #kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([tau_hat]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
+    #gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float32))
 
-    # Get the entropy of the design
-    gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-6)
-    nll = -gp.log_prob(response)
+    #########
+    ## Find the next point
+    explored = []
+    for it in range(seq_steps):
+        # Start with 2 inits: one maximizing variance, and one at the previous optimum
+        # Prev optim
+        init_x = design_tf.numpy()[np.argmin(response),:] 
+        #print(init_x)
+        #print(spy_neur_nei(init_x))
+        #print(spy_neur_nei_grad(init_x))
 
-    return nll
+        optret = minimize(spy_neur_nei, init_x, bounds = [(0,1) for _ in range(P)], method = 'L-BFGS-B',\
+                jac = spy_neur_nei_grad, args = (model, gp, response_tf))
+        optret
+        exploit_val = optret.fun
+        exploit_x = optret.x
 
-def weights_2_vec(weights):
-    return(np.concatenate([wx.flatten() for wx in weights]))
+        # Max var, initing that randomly, then into EI
+        explore_vals = np.empty(explore_starts)
+        explore_xs = []
+        for eit in range(explore_starts):
+            init_x = np.random.uniform(size=P)
+            #print(init_x)
+            #print(spy_nvar(init_x))
+            #print(spy_nvar_grad(init_x))
 
-def vec_2_weights(vec):
-    nlayers = L+1
-    weights = []
-    used_neurons = 0
-    prev_shape = P
-    for l in range(nlayers):
-        # Add connection weights:
-        curr_size = model.layers[l].output_shape[1] * prev_shape
-        weights.append(vec[used_neurons:(used_neurons+curr_size)].reshape([ prev_shape, model.layers[l].output_shape[1]]))
-        used_neurons += curr_size
+            optret = minimize(spy_nvar, init_x, bounds = [(0,1) for _ in range(P)], method = 'L-BFGS-B',\
+                    jac = spy_nvar_grad, args = (model, gp, response_tf))
+            optret
+            var_init = optret.x
 
-        # Add biases:
-        curr_size = model.layers[l].output_shape[1] 
-        vec[used_neurons:(used_neurons+curr_size)]
-        weights.append(vec[used_neurons:(used_neurons+curr_size)])
-        used_neurons += curr_size
+            #print(spy_neur_nei(var_init))
+            #print(spy_neur_nei_grad(var_init))
 
-        prev_shape = model.layers[l].output_shape[1]
+            optret = minimize(spy_neur_nei, var_init, bounds = [(0,1) for _ in range(P)], method = 'L-BFGS-B',\
+                    jac = spy_neur_nei_grad, args = (model, gp, response_tf))
+            explore_vals[eit] = optret.fun
+            explore_xs.append(optret.x)
+        explore_val = min(explore_vals)
+        explore_x = explore_xs[np.argmax(explore_vals)]
 
-    return(weights)
+        if explore_val < exploit_val:
+            if verbose:
+                print("Exploring...")
+            explored.append(True)
+            new_x = explore_x
+        else:
+            if verbose:
+                print("Exploiting..")
+            explored.append(False)
+            new_x = exploit_x
+        new_y = (objective(new_x) - y_mu) / y_sig
 
-def spy_weights_cost(x):
-    weights = vec_2_weights(x)
-    weights_loss(weights).numpy()
+        N += 1
+        design = np.vstack([design, new_x])
+        design_tf = tf.Variable(design)
+        response = np.append(response, new_y)
+        response_tf = tf.Variable(response.reshape([N,1]))
+        Z = model(tf.cast(design_tf, tf.float32))
 
-def spy_weights_grad(x):
-    weights = vec_2_weights(x)
-    weights_loss(weights).numpy()
+        # Plug in estimate
+        #K = tf.squeeze(gp.covariance())
+        #tau_hat = tf.squeeze(tf.sqrt(tf.matmul(tf.transpose(response_tf), tf.linalg.solve(tf.cast(K, tf.float64), response_tf)) / float(N)))
+        #kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([tau_hat]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
+        #gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float32))
+        kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
+        gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float32))
 
-def spy_maxent_grad(x):
-    X.assign(np.array(x).reshape([N,P]))
-    with tf.GradientTape() as t:
-        l = maxent_loss(X)
-    return (t.gradient(l, X).numpy()).flatten()
+    return (design, response, explored)

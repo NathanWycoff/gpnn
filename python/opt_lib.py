@@ -11,6 +11,7 @@ def get_var(xx_tf, yn_tf, gp):
     :param gp: A gp used to predict. GP should be trained on the locations yn_tf was observed.
     """
 
+    N, P = gp.index_points.numpy().shape
     k = gp.kernel
     kxx = tf.reshape(k.apply(xx_tf, gp.index_points), [N,1])
     K = tf.squeeze(gp.covariance())
@@ -24,14 +25,16 @@ def get_var(xx_tf, yn_tf, gp):
 
     return(zpred_vars)
 
-def spy_nvar(x):
+def spy_nvar(x, model, gp, response_tf):
+    P = len(x)
     x_tf = tf.cast(tf.Variable(x.reshape([1,P])), tf.float32)
     z_tf = model(x_tf)
     #z_tf = tf.cast(tf.Variable(z.reshape([1,R])), tf.float32)
     ei = get_var(z_tf, response_tf, gp)
     return(-float(ei.numpy().flatten()))
 
-def spy_nvar_grad(x):
+def spy_nvar_grad(x, model, gp, response_tf):
+    P = len(x)
     with tf.GradientTape() as t:
         x_tf = tf.cast(tf.Variable(x.reshape([1,P])), tf.float32)
         z_tf = model(x_tf)
@@ -47,6 +50,7 @@ def get_ei(xx_tf, yn_tf, gp):
     :param gp: A gp used to predict. GP should be trained on the locations yn_tf was observed.
     """
 
+    N, P = gp.index_points.numpy().shape
     k = gp.kernel
     kxx = tf.reshape(k.apply(xx_tf, gp.index_points), [N,1])
     K = tf.squeeze(gp.covariance())
@@ -66,14 +70,16 @@ def get_ei(xx_tf, yn_tf, gp):
             zpred_vars * pdist.prob(miny)
     return(ei)
 
-def spy_neur_nei(x):
+def spy_neur_nei(x, model, gp, response_tf):
+    P = len(x)
     x_tf = tf.cast(tf.Variable(x.reshape([1,P])), tf.float32)
     z_tf = model(x_tf)
     #z_tf = tf.cast(tf.Variable(z.reshape([1,R])), tf.float32)
     ei = get_ei(z_tf, response_tf, gp)
     return(-float(ei.numpy().flatten()))
 
-def spy_neur_nei_grad(x):
+def spy_neur_nei_grad(x, model, gp, response_tf):
+    P = len(x)
     with tf.GradientTape() as t:
         x_tf = tf.cast(tf.Variable(x.reshape([1,P])), tf.float32)
         z_tf = model(x_tf)
