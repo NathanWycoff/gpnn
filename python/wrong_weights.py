@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 plt.ion()
 from scipy.special import expit, logit
 from scipy.spatial import distance_matrix
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.neighbors import KNeighborsRegressor
 exec(open("python/hilbert_curve.py").read())
 exec(open("python/ackley.py").read())
 exec(open("python/neural_maxent.py").read())
@@ -24,12 +26,12 @@ exec(open("python/opt_lib.py").read())
 ## A toy design: start with some high D function, map it to R D using a MLP, 
 ## then do sequential design pretending like we know the true mapping. 
 ## We should demolish methods which do not avail themselves of this info.
-N_init = 10
+N_init = 20
 P = 5
 L = 1
 H = 10
 R = 2
-seq_steps = 10
+seq_steps = 30
 explore_starts = 10
 # TODO: These next two dials are pretty fragile.
 minalldist = 1e-5
@@ -47,9 +49,7 @@ used_model = tf.keras.models.Sequential(
 used_model.build(input_shape=[P])
 used_model.summary()
 
-## Model we're using
-tf.random.set_random_seed(123)
-np.random.seed(123)
+# The data-generating model
 act = tf.nn.tanh
 true_model = tf.keras.models.Sequential(
     [tf.keras.layers.Dense(H, activation=act, input_shape=(P,)) if i == 0 else tf.keras.layers.Dense(H, activation=act) for i in range(L)] + 
@@ -58,7 +58,7 @@ true_model = tf.keras.models.Sequential(
 true_model.build(input_shape=[P])
 true_model.summary()
 
-## Get teh extent of the design with many points.
+## Get the extent of the design with many points.
 viz_design = neural_maxent(100 ,P, L, H, R, net_weights = used_model.get_weights())['design']
 viz_Z = used_model(tf.cast(viz_design, tf.float32)).numpy()
 extent = [min(viz_Z[:,0]), max(viz_Z[:,0]), min(viz_Z[:,1]), max(viz_Z[:,1])]
@@ -88,11 +88,17 @@ y_mu = np.mean(response_us)
 y_sig = np.std(response_us)
 response = (response_us - y_mu) / y_sig
 
-design, response, explored = seq_design(design = design, response = response, used_model = used_model, objective = test_objective, seq_steps = seq_steps, explore_starts = explore_starts, verbose = True)
+design, response, explored = seq_design(design = design, response = response, model = used_model, objective = test_objective, seq_steps = seq_steps, explore_starts = explore_starts, verbose = True)
 design_tf = tf.Variable(design)
 
-## Contour plot
-Z_sol = used_model(tf.cast(design_tf, tf.float32)).numpy()
+## Sample many points to make a response surface in the "wrong"/used model
+B = 10000
+X_samp = np.random.uniform(size=[B,P])
+Zu_samp = used_model(tf.cast(X_samp, tf.float32))
+y_samp = np.apply_along_axis(test_objective, 1, X_samp)
+
+pred = KNeighborsRegressor(n_neighbors = 3)
+pred.fit(Zu_samp, y_samp)
 delta = 0.025
 x = np.arange(extent[0], extent[1], delta)
 y = np.arange(extent[2], extent[3], delta)
@@ -100,8 +106,19 @@ X, Y = np.meshgrid(x, y)
 toplot = np.empty(X.shape)
 for i in range(X.shape[0]):
     for j in range(X.shape[1]):
-        toplot[i,j] = myackley(np.array([X[i,j], Y[i,j]]))
+        toplot[i,j] = pred.predict(np.array([X[i,j],Y[i,j]]).reshape(1,-1))
 
+#### Contour plot
+#delta = 0.025
+#x = np.arange(extent[0], extent[1], delta)
+#y = np.arange(extent[2], extent[3], delta)
+#X, Y = np.meshgrid(x, y)
+#toplot = np.empty(X.shape)
+#for i in range(X.shape[0]):
+#    for j in range(X.shape[1]):
+#        toplot[i,j] = myackley(np.array([X[i,j], Y[i,j]]))
+
+Z_sol = used_model(tf.cast(design_tf, tf.float32)).numpy()
 fig, ax = plt.subplots()
 
 im = ax.imshow(toplot, interpolation='bilinear', origin='lower',
@@ -117,4 +134,4 @@ for i in range(N_init, N_init+seq_steps):
 
 plt.show()
 
-plt.savefig('images/ackley_known.pdf')
+plt.savefig('images/ackley_wrong.pdf')

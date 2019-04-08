@@ -80,7 +80,6 @@ design, response, explored = seq_design(design = design, response = response, mo
 design_tf = tf.Variable(design)
 
 ## Contour plot
-Z_sol = model(tf.cast(design_tf, tf.float32)).numpy()
 delta = 0.025
 x = np.arange(extent[0], extent[1], delta)
 y = np.arange(extent[2], extent[3], delta)
@@ -90,6 +89,7 @@ for i in range(X.shape[0]):
     for j in range(X.shape[1]):
         toplot[i,j] = myackley(np.array([X[i,j], Y[i,j]]))
 
+Z_sol = model(tf.cast(design_tf, tf.float32)).numpy()
 fig, ax = plt.subplots()
 
 im = ax.imshow(toplot, interpolation='bilinear', origin='lower',
