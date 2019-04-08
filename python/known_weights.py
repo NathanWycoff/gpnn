@@ -46,7 +46,7 @@ model = tf.keras.models.Sequential(
 model.build(input_shape=[P])
 model.summary()
 
-## Get teh extent of the design with many points.
+## Get the extent of the design with many points.
 viz_design = neural_maxent(100 ,P, L, H, R, net_weights = model.get_weights())['design']
 viz_Z = model(tf.cast(viz_design, tf.float32)).numpy()
 extent = [min(viz_Z[:,0]), max(viz_Z[:,0]), min(viz_Z[:,1]), max(viz_Z[:,1])]

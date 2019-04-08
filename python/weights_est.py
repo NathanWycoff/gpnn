@@ -16,14 +16,15 @@ from scipy.spatial import distance_matrix
 exec(open("python/hilbert_curve.py").read())
 exec(open("python/ackley.py").read())
 exec(open("python/neural_maxent.py").read())
+exec(open("python/test_functions.py").read())
 
 ## Sequential design of an acquisition function using a deep kernel.
 ## A toy design: start with some high D function, map it to R D using a MLP, 
 ## then do sequential design pretending like we know the true mapping. 
 ## We should demolish methods which do not avail themselves of this info.
-N = 100
-P = 10
-L = 2
+N_init = 20
+P = 5
+L = 1
 H = 10
 R = 2
 # TODO: These next two dials are pretty fragile.
@@ -38,30 +39,16 @@ model = tf.keras.models.Sequential(
 model.build(input_shape=[P])
 model.summary()
 
-
-def test_objective(x):
-    """
-    An ackley defined on a low D space.
-    """
-    xs = x.reshape([1,x.shape[0]])
-    z = model(tf.cast(xs, tf.float32)).numpy().reshape(R)
-    return(ackley(z))
+## Get the extent of the design with many points. TODO: Betterrr
+#TODO: WARNING -- ackley_obj uses global variable extent (terrible practice).
+viz_design = neural_maxent(100, P, L, H, R, net_weights = model.get_weights())['design']
+viz_Z = model(tf.cast(viz_design, tf.float32)).numpy()
+extent = [min(viz_Z[:,0]), max(viz_Z[:,0]), min(viz_Z[:,1]), max(viz_Z[:,1])]
 
 # Entropy max initial design
+N = N_init
 design = neural_maxent(N ,P, L, H, R, net_weights = model.get_weights())['design']
-response = np.apply_along_axis(test_objective, 1, design)
-
-# Define likelihood wrt weights
-def weights_loss(weights):
-    #### Compute low D subspace.
-    model.set_weights(weights)
-    Z = model(tf.cast(design, np.float32))
-
-    # Get the entropy of the design
-    gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-6)
-    nll = -gp.log_prob(response)
-
-    return nll
+response = np.apply_along_axis(ackley_obj, 1, design)
 
 def weights_2_vec(weights):
     return(np.concatenate([wx.flatten() for wx in weights]))
@@ -87,16 +74,38 @@ def vec_2_weights(vec):
 
     return(weights)
 
-def spy_weights_cost(x):
-    weights = vec_2_weights(x)
-    weights_loss(weights).numpy()
+# Define likelihood wrt weights
+def weights_loss(weights, model, response):
+    model.set_weights(weights)
+    Z = model(tf.cast(design, np.float32))
 
-def spy_weights_grad(x):
-    weights = vec_2_weights(x)
-    weights_loss(weights).numpy()
+    # Get the entropy of the design
+    gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-6)
+    nll = -gp.log_prob(response)
 
-def spy_maxent_grad(x):
-    X.assign(np.array(x).reshape([N,P]))
+    return nll
+
+
+def spy_weights_cost(w, model, response):
+    weights = vec_2_weights(w)
+    return float(weights_loss(weights, model, response).numpy())
+
+def spy_weights_grad(w, model, response):
+    weights = vec_2_weights(w)
     with tf.GradientTape() as t:
-        l = maxent_loss(X)
-    return (t.gradient(l, X).numpy()).flatten()
+        nll = weights_loss(weights, model, response)
+    dweights = t.gradient(nll, model.trainable_weights)
+    dweightsnp = [wi.numpy().astype(np.float64) for wi in dweights]
+
+    return weights_2_vec(dweightsnp)
+
+# Do an optimization boy.
+#TODO: reliance on globals in opt
+init_w = weights_2_vec(model.get_weights()).astype(np.float64)
+optret = minimize(spy_weights_cost, init_w, method = 'L-BFGS-B',\
+        jac = spy_weights_grad, args = (model, response))
+
+model.set_weights(vec_2_weights(init_w))
+model(tf.cast(design, np.float32))
+model.set_weights(vec_2_weights(optret.x))
+model(tf.cast(design, np.float32))
