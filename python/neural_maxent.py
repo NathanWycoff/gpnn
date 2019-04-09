@@ -63,7 +63,7 @@ def neural_maxent(N, P, L, H, R, minalldist = 1e-5, scalealldist = 1500, net_wei
         # Detect if near boundary
         
         # Get the entropy of the design
-        gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-6)
+        gp = tfd.GaussianProcess(kernel, Z, jitter = 1E-4)
         nldetK = -tf.linalg.logdet(gp.covariance())
 
         return nldetK + distpen

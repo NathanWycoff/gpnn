@@ -15,7 +15,7 @@ from scipy.special import expit, logit
 from scipy.spatial import distance_matrix
 
 ## Sequential design of an acquisition function using a deep kernel.
-def seq_design(design, response, model, objective, seq_steps, explore_starts = 10, verbose = False):
+def seq_design(design, response, model, objective, seq_steps, y_mu, y_sig, explore_starts = 10, verbose = False):
     """
     Sequential Acquisition.
     """

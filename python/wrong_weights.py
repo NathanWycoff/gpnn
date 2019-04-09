@@ -108,16 +108,6 @@ for i in range(X.shape[0]):
     for j in range(X.shape[1]):
         toplot[i,j] = pred.predict(np.array([X[i,j],Y[i,j]]).reshape(1,-1))
 
-#### Contour plot
-#delta = 0.025
-#x = np.arange(extent[0], extent[1], delta)
-#y = np.arange(extent[2], extent[3], delta)
-#X, Y = np.meshgrid(x, y)
-#toplot = np.empty(X.shape)
-#for i in range(X.shape[0]):
-#    for j in range(X.shape[1]):
-#        toplot[i,j] = myackley(np.array([X[i,j], Y[i,j]]))
-
 Z_sol = used_model(tf.cast(design_tf, tf.float32)).numpy()
 fig, ax = plt.subplots()
 
