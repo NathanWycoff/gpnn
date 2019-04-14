@@ -26,7 +26,7 @@ exec(open("python/opt_lib.py").read())
 ## A toy design: start with some high D function, map it to R D using a MLP, 
 ## then do sequential design pretending like we know the true mapping. 
 ## We should demolish methods which do not avail themselves of this info.
-N_init = 1000
+N_init = 100
 P = 3
 L = 1
 H = 10
@@ -144,7 +144,7 @@ Z_sol = est_model(tf.cast(design_tf, tf.float32)).numpy()
 fig, ax = plt.subplots()
 im = ax.imshow(toplot, interpolation='bilinear', origin='lower',
                 cmap=cm.gray, extent=extent)
-plt.scatter(Z_sol[:,0], Z_sol[:,1], c = response)
+plt.scatter(Z_sol[:,0], Z_sol[:,1], c = response, s = 5)
 plt.autumn()
 plt.show()
 plt.savefig('images/ackley_after.pdf')

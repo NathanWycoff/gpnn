@@ -26,7 +26,7 @@ def get_extent(design, model):
     return extent
 
 
-def neural_plot(design, response, model, objective, figname = 'temp.pdf', B = 100000):
+def neural_plot2d(design, response, model, objective, figname = 'temp.pdf', B = 100000):
     P = design.shape[1]
 
     # Sample the objective at many points
@@ -34,12 +34,15 @@ def neural_plot(design, response, model, objective, figname = 'temp.pdf', B = 10
     Zu_samp = model(tf.cast(X_samp, tf.float32))
     y_samp = np.apply_along_axis(objective, 1, X_samp)
 
+
     # Build a KNN response surface
     pred = KNeighborsRegressor(n_neighbors = 5)
     pred.fit(Zu_samp, y_samp)
     delta = 0.025
-    x = np.arange(extent[0], extent[1], delta)
-    y = np.arange(extent[2], extent[3], delta)
+    extent = get_extent(X_samp, model)
+    #TODO: linspace shold be used here as in neural_plot1D
+    x = np.arange(extent[0][0], extent[0][1], delta)
+    y = np.arange(extent[1][0], extent[1][1], delta)
     X, Y = np.meshgrid(x, y)
     toplot = np.empty(X.shape)
     for i in range(X.shape[0]):
@@ -50,9 +53,47 @@ def neural_plot(design, response, model, objective, figname = 'temp.pdf', B = 10
     Z_sol = model(tf.cast(design_tf, tf.float32)).numpy()
 
     fig, ax = plt.subplots()
+    extentl = [item for sublist in extent for item in sublist]
     im = ax.imshow(toplot, interpolation='bilinear', origin='lower',
-                    cmap=cm.gray, extent=extent)
+                    cmap=cm.gray, extent=extentl)
     plt.scatter(Z_sol[:,0], Z_sol[:,1], c = response)
     plt.autumn()
     plt.show()
     plt.savefig(figname)
+
+#def neural_plot1d(design, response, model, objective, figname = 'temp.pdf', B = 100000, res = 100):
+#    P = design.shape[1]
+#
+#    # Sample the objective at many points
+#    X_samp = np.random.uniform(size=[B,P])
+#    Zu_samp = model(tf.cast(X_samp, tf.float32))
+#    y_samp = np.apply_along_axis(objective, 1, X_samp)
+#
+#    # Build a KNN response surface
+#    pred = KNeighborsRegressor(n_neighbors = 5)
+#    pred.fit(Zu_samp, y_samp)
+#    extent = get_extent(X_samp, model)
+#    x = np.linspace(extent[0][0], extent[0][1], res)
+#    toplot = np.empty(x.shape)
+#    for i in range(len(x)):
+#        toplot[i] = pred.predict(np.array(x[i]).reshape(1,-1))
+# TODO: Works to here.
+#
+#    design_tf = tf.Variable(design)
+#    Z_sol = model(tf.cast(design_tf, tf.float32)).numpy()
+#
+#    fig, ax = plt.subplots()
+#    extentl = [item for sublist in extent for item in sublist]
+#    im = ax.imshow(toplot, interpolation='bilinear', origin='lower',
+#                    cmap=cm.gray, extent=extentl)
+#    plt.scatter(Z_sol[:,0], Z_sol[:,1], c = response)
+#    plt.autumn()
+#    plt.show()
+#    plt.savefig(figname)
+
+
+def true_plot():
+    """
+    neural_plot when the model is the one from which data were generated
+    """
+    pass

@@ -165,12 +165,18 @@ def spy_weights_grad(w, model, design, response, l2_coef):
     return weights_2_vec(dweightsnp)
 
 def update_weights(design, response, model, l2_coef = 1):
-    init_w = weights_2_vec(model.get_weights()).astype(np.float64)
+    # Create a clone so as not to change passed model
+    init_W = model.get_weights()
+    model = tf.keras.models.clone_model(model)
+    model.set_weights(init_W)
+
+    init_w = weights_2_vec(init_W).astype(np.float64)
     optret = minimize(spy_weights_cost, init_w, method = 'L-BFGS-B',\
             jac = spy_weights_grad, args = (model, design, response, l2_coef))
     model.set_weights(vec_2_weights(optret.x, model))
     if optret.success:
-        msg = "Successful Weight Opt Termination"
+        msg = "Successful Weight Opt Termination in %d iterations"%optret.nit
     else:
-        msg = "Abnormal Weight Opt Termination"
+        msg = "Abnormal Weight Opt Termination in %d iterations"%optret.nit
+    print(msg)
     return(model)

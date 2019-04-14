@@ -3,6 +3,7 @@
 #  python/test_funcs.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 04.09.2019
 
 # Some functions to test my shit on
+exec(open("python/ackley.py").read())
 
 #########
 def myackley(z, extent):

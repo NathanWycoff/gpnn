@@ -1,13 +1,13 @@
 import numpy as np
 
+#TODO: Figure out how to copyright this correctly.
 def ackley(xx, a=20, b=0.2, c=2*np.pi):
     """
-
     ACKLEY FUNCTION
 
     Authors: Sonja Surjanovic, Simon Fraser University
             Derek Bingham, Simon Fraser University
-            Nathan Wycoff, Virginia Tech (Python translation)
+            Nathan Wycoff, Virginia Tech (Python translation; mapping to [0,1]^d)
     Questions/Comments: Please email Derek Bingham at dbingham@stat.sfu.ca.
 
     Copyright 2013. Derek Bingham, Simon Fraser University.
@@ -30,7 +30,7 @@ def ackley(xx, a=20, b=0.2, c=2*np.pi):
 
     INPUTS:
 
-    xx = c(x1, x2, ..., xd)
+    xx = c(x1, x2, ..., xd) \in [0,1]^d
     a = constant (optional), with default value 20
     b = constant (optional), with default value 0.2
     c = constant (optional), with default value 2*pi

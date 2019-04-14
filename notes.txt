@@ -1,5 +1,12 @@
+# Conceptual issue:
+- How should we regularize?
+- How should we talk about uncertainty on the low-D space?
 - Understand the nullspace of a neural network
 
+#Ideas:
+In functions such as the ackley function, all we really need to learn is the distance of a point from the origin to find the optimum. The ackey is effectively 1-D in this sense. Can we learn this using a neural network?
+
+#TODO:
 - To get the image of the unit box given an arbitrary net (useful for viz).
 
 - (opt) Hilbert Curve init in Z space?
@@ -16,4 +23,3 @@
 Done:
 1) Get Hilbert Curve init in X space working fully
 2) Put shit into functions and make tests
-
