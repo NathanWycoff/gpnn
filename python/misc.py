@@ -9,16 +9,17 @@ def random_nn(P, L, H, R, act = tf.nn.tanh):
     H the width
     R output dim
     """
+
     model = tf.keras.models.Sequential(
-        [tf.keras.layers.Dense(H, activation=act, input_shape=(P,)) if i == 0 else tf.keras.layers.Dense(H, activation=act) for i in range(L)] + 
-        [tf.keras.layers.Dense(R)
-        ])
+        [tf.keras.layers.Dense(H, activation=act, input_shape=(P,), dtype = tf.float64) if i == 0 else tf.keras.layers.Dense(H, activation=act, dtype = tf.float64) for i in range(L)] + 
+        [tf.keras.layers.Dense(R, dtype = tf.float64) if L > 0 else tf.keras.layers.Dense(R, input_shape = (P,), dtype = tf.float64)]
+        )
     model.build(input_shape=[P])
 
     return model
 
 def get_extent(design, model):
-    image = model(tf.cast(design, tf.float32)).numpy()
+    image = model(design).numpy()
     R = image.shape[1]
     extent = []
     for r in range(R):
@@ -31,7 +32,7 @@ def neural_plot2d(design, response, model, objective, figname = 'temp.pdf', B = 
 
     # Sample the objective at many points
     X_samp = np.random.uniform(size=[B,P])
-    Zu_samp = model(tf.cast(X_samp, tf.float32))
+    Zu_samp = model(X_samp)
     y_samp = np.apply_along_axis(objective, 1, X_samp)
 
 
@@ -50,7 +51,7 @@ def neural_plot2d(design, response, model, objective, figname = 'temp.pdf', B = 
             toplot[i,j] = pred.predict(np.array([X[i,j],Y[i,j]]).reshape(1,-1))
 
     design_tf = tf.Variable(design)
-    Z_sol = model(tf.cast(design_tf, tf.float32)).numpy()
+    Z_sol = model(design_tf).numpy()
 
     fig, ax = plt.subplots()
     extentl = [item for sublist in extent for item in sublist]

@@ -6,7 +6,9 @@ from sklearn.manifold import MDS
 import matplotlib.pyplot as plt
 plt.ion()
 exec(open("python/hilbert_curve.py").read())
+exec(open("python/opt_lib.py").read())
 exec(open("python/neural_maxent.py").read())
+exec(open("python/misc.py").read())
 
 #######################################################
 #######################################################
@@ -92,6 +94,35 @@ plt.show()
 plt.savefig('temp.pdf')
 
 #############################################
+## Test that the sequential max-entropy seems to be doing something reasonable.
+tf.random.set_random_seed(1234)
+np.random.seed(1234)
+
+N_init = 4
+P = 2
+L = 0
+H = None
+R = 2
+seq_steps = 30
+
+# Two similarly shaped random nets, one is the one we init on, one the one we use.
+model = random_nn(P,L,H,R, act = tf.nn.tanh)
+model.set_weights([0.1*np.eye(2), np.zeros(2)])
+
+# Make the initial design
+init_w = model.get_weights()
+design = neural_maxent(N_init, P, L, H, R, net_weights = model.get_weights())['design']
+
+# Add a point
+new_point = neural_maxent(10, P, L, H, R, X_prev = design, net_weights = model.get_weights())['design']
+
+fig = plt.figure()
+plt.scatter(design[:,0], design[:,1])
+plt.scatter(new_point[:,0], new_point[:,1])
+plt.savefig('temp.pdf')
+
+
+#############################################
 ## Test that EI is working by reproducing an images from Bobby's notes.
 N = 5
 x = np.array([1,2,3,4,12])
@@ -170,3 +201,28 @@ plt.plot(xx, eis)
 
 plt.show()
 plt.savefig('temp.pdf')
+
+### test that the vanilla GP seems to work.
+N = 1000
+P = 6
+X = np.random.uniform(size=[N,P]).astype(np.float64)
+
+kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([4.20]).astype(np.float64), length_scale = np.array([0.1]).astype(np.float64))
+gp = tfd.GaussianProcess(kernel, X, jitter = 1E-4)
+covmat = gp.covariance().numpy().squeeze()
+
+L = np.linalg.cholesky(covmat)
+z = np.random.normal(size=[N])
+y = L.dot(z) + 10
+
+#try to recover those params.
+van_model = random_nn(P,0,None,P)
+van_model.set_weights([0.1*np.eye(P), np.repeat(np.mean(y), P)])
+
+van_model = update_weights(X, y, van_model, l2_coef = 0, diag = True)[0]
+van_model.get_weights()
+## Formula to go from diagonal of weight element to length-scale is 1/w * 1/sqrt(2)
+## Looks pretty close
+
+#TODO: Kernel handling is sloppy; make it less so. (i.e. we define a global one, we tend to use arbitrary amplitude).
+#TODO: We have different nuggets in different places; that should not be so.

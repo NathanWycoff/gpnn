@@ -15,7 +15,7 @@ from scipy.special import expit, logit
 from scipy.spatial import distance_matrix
 
 ## Sequential design of an acquisition function using a deep kernel.
-def seq_design(design, response, model, objective, seq_steps, y_mu, y_sig, explore_starts = 10, verbose = False):
+def seq_design(design, response, model, objective, seq_steps, y_mu = 0, y_sig = 1, explore_starts = 10, verbose = False, nugget = 1e-6):
     """
     Sequential Acquisition.
     """
@@ -25,11 +25,33 @@ def seq_design(design, response, model, objective, seq_steps, y_mu, y_sig, explo
     ## Initial model
     design_tf = tf.Variable(design)
     response_tf = tf.Variable(response.reshape([N,1]))
-    Z = model(tf.cast(design_tf, tf.float32))
+    Z = model(design_tf)
 
     # Initial fit to get amplitude (this is horribly inefficient but easiest for now)
-    kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
-    gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float32))
+    good = False
+    max_tries = 10
+    tries = 0
+    while not good and tries < max_tries:
+        try:
+            kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1.0]), length_scale = np.array([1.0]))
+            gp = tfd.GaussianProcess(kernel, Z, jitter = GLOBAL_NUGGET)
+            C = tf.squeeze(gp.covariance())
+            #TODO: The plug-in estimator is calculated inefficiently.
+            amp_est = tf.sqrt(response.dot(tf.linalg.solve(C, response.reshape([len(response),1]))) / len(response))
+
+            kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([amp_est]), length_scale = np.array([1.0]))
+            gp = tfd.GaussianProcess(kernel, Z, jitter = GLOBAL_NUGGET)
+
+            #kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1.0]), length_scale = np.array([0.1]))
+            #gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float64))
+            good = True
+        except tf.errors.InvalidArgumentError:
+            Warning("Chol Fact failed: doubling nugget.")
+            nugget *= 2
+        finally:
+            tries += 1
+    if tries == max_tries:
+        raise tf.errors.InvalidArgumentError("Could not get a valid covariance matrix.")
 
     ## Plug in estimate
     #K = tf.squeeze(gp.covariance())
@@ -95,14 +117,22 @@ def seq_design(design, response, model, objective, seq_steps, y_mu, y_sig, explo
         design_tf = tf.Variable(design)
         response = np.append(response, new_y)
         response_tf = tf.Variable(response.reshape([N,1]))
-        Z = model(tf.cast(design_tf, tf.float32))
+        Z = model(design_tf)
 
         # Plug in estimate
         #K = tf.squeeze(gp.covariance())
         #tau_hat = tf.squeeze(tf.sqrt(tf.matmul(tf.transpose(response_tf), tf.linalg.solve(tf.cast(K, tf.float64), response_tf)) / float(N)))
         #kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([tau_hat]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
         #gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float32))
-        kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1]).astype(np.float32), length_scale = np.array([0.1]).astype(np.float32))
-        gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float32))
+        #kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1.0]), length_scale = np.array([0.1]))
+        #gp = tfd.GaussianProcess(kernel, Z, jitter = tf.cast(tf.Variable(nugget), tf.float64))
+        kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([1.0]), length_scale = np.array([1.0]))
+        gp = tfd.GaussianProcess(kernel, Z, jitter = GLOBAL_NUGGET)
+        C = tf.squeeze(gp.covariance())
+        #TODO: The plug-in estimator is calculated inefficiently.
+        amp_est = tf.sqrt(response.dot(tf.linalg.solve(C, response.reshape([len(response),1]))) / len(response))
+
+        kernel = psd_kernels.ExponentiatedQuadratic(amplitude = np.array([amp_est]), length_scale = np.array([1.0]))
+        gp = tfd.GaussianProcess(kernel, Z, jitter = GLOBAL_NUGGET)
 
     return (design, response, explored)

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#  python/ackley_radius.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 04.14.2019
+#  python/ack_seq.py Author "Nathan Wycoff <nathanbrwycoff@gmail.com>" Date 04.19.2019
 
-## Can the gpnn learn that only radius from the center matters?
-#TODO: Radius from [0.5,..] needs to be implemented, not from the origin as it is now.
+## Do sequential design on the Ackley function.
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
@@ -18,8 +17,8 @@ from scipy.special import expit, logit
 from scipy.spatial import distance_matrix
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.metrics import r2_score
 exec(open("python/hilbert_curve.py").read())
+exec(open("python/ackley.py").read())
 exec(open("python/neural_maxent.py").read())
 exec(open("python/seq_des.py").read())
 exec(open("python/opt_lib.py").read())
@@ -29,46 +28,38 @@ exec(open("python/test_funcs.py").read())
 tf.random.set_random_seed(1234)
 np.random.seed(1234)
 
-N_init = 100
-P = 3
-L = 2
+N_init = 20
+P = 20
+L = 1
 H = 10
-R = 1
+R = 2
+seq_steps = 30
 
 # Two similarly shaped random nets, one is the one we init on, one the one we use.
 used_model = random_nn(P,L,H,R, act = tf.nn.tanh)
 
 init_w = used_model.get_weights()
 design = neural_maxent(N_init ,P, L, H, R, net_weights = used_model.get_weights())['design']
+#true_extent = get_extent(design, true_model)
 
-#TODO: This is probably not doing what you would like it to.
-bb_obj = ackley
+bb_obj = lambda x: ackley(x.flatten())
 
 response_us = np.apply_along_axis(bb_obj, 1, design)
 y_mu = np.mean(response_us)
 y_sig = np.std(response_us)
 response = (response_us - y_mu) / y_sig
 
+# Update model after initial design.
 est_model = update_weights(design, response, used_model, l2_coef = 0)
 
-# Does the low D viz correspond to a radius?
-init_preds = used_model.predict(design)
-preds = est_model.predict(design)
-rads = np.apply_along_axis(np.linalg.norm, 1, design)
-fig = plt.figure()
+for si in range(seq_steps):
+    # Sample a next point; append it to our design
+    next_point = neural_maxent(1, P, L, H, R, X_prev = design, net_weights = est_model.get_weights())['design']
+    next_y = (bb_obj(next_point) - y_mu) / y_sig
 
-plt.subplot(1,2,1)
-plt.scatter(init_preds, rads)
-plt.xlabel('NN output')
-plt.ylabel('Norm of point')
-r2 = pow(np.corrcoef(init_preds.flatten(), rads)[0,1], 2)
-plt.title('Initial (r2 = %s)'%round(r2, 4))
+    design = np.vstack([design, next_point])
+    response = np.append(response, next_y)
 
-plt.subplot(1,2,2)
-plt.scatter(preds, rads)
-plt.xlabel('NN output')
-plt.ylabel('Norm of point')
-r2 = pow(np.corrcoef(preds.flatten(), rads)[0,1], 2)
-plt.title('Learned (r2 = %s)'%round(r2, 4))
-[1,1]
-plt.savefig('images/temp.pdf')
+    # Update our neural net weights.
+    #TODO: Does this converge? Do, eventually, we learn a W and stop learning mutch upon a new point being revealed?
+    est_model = update_weights(design, response, est_model, l2_coef = 0)
